@@ -1354,12 +1354,9 @@ public partial class ExileCampaigns
         try
         {
             var dl = ImGui.GetForegroundDrawList();
-            foreach (var element in WindowItemElements(window))
+            foreach (var (element, entry) in WindowBuildHits(window))
             {
-                var snap = ReadItemSnapshot(element.Entity);
-                if (!snap.Valid) continue;
-                var entry = Best(MatchBuild(snap));
-                if (entry == null) continue;
+                if (element.Address == 0 || !element.IsVisibleLocal) continue;   // item left since the last scan
 
                 var r = element.GetClientRect();
                 var min = new Vector2(r.X - 2, r.Y - 2);
@@ -1378,6 +1375,32 @@ public partial class ExileCampaigns
             }
         }
         catch { /* window mid-teardown */ }
+    }
+
+    // the subtree walk plus a snapshot per item is the expensive half of this (a stash tab is ~144 items, each
+    // a dat translate + component reads), so which items match is rescanned ~10x/sec and cached. rects still
+    // come off the elements every frame, so scrolling and dragging stay glued to the item.
+    private readonly Dictionary<long, (DateTime At, List<(Element El, BuildEntry Entry)> Hits)> _windowHits = new();
+
+    private List<(Element El, BuildEntry Entry)> WindowBuildHits(Element window)
+    {
+        var key = window.Address;
+        if (_windowHits.TryGetValue(key, out var cached) && (DateTime.UtcNow - cached.At).TotalMilliseconds < 100)
+            return cached.Hits;
+
+        var hits = new List<(Element, BuildEntry)>();
+        foreach (var element in WindowItemElements(window))
+        {
+            var snap = ReadItemSnapshot(element.Entity);
+            if (!snap.Valid) continue;
+            var entry = Best(MatchBuild(snap));
+            if (entry == null) continue;
+            hits.Add((element, entry));
+        }
+
+        if (_windowHits.Count > 8) _windowHits.Clear();   // windows come and go, don't hoard dead addresses
+        _windowHits[key] = (DateTime.UtcNow, hits);
+        return hits;
     }
 
     private static bool RectsOverlap(Vector2 aMin, Vector2 aMax, Vector2 bMin, Vector2 bMax) =>

@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
@@ -450,6 +451,19 @@ public sealed class PatternMatcher
             catch (ArgumentException ex) { _regex = null; Error = ex.Message; }
         }
     }
+
+    // shared, memoized by pattern. building one per entity per tick was the hot path, and a regex pattern
+    // emits IL on every ctor (RegexOptions.Compiled), so it cost milliseconds each. Pattern is a record, so
+    // value-equal patterns share an instance; matchers are immutable + Regex is thread safe.
+    private static readonly ConcurrentDictionary<Pattern, PatternMatcher> Cache = new();
+
+    public static PatternMatcher For(Pattern? pattern)
+    {
+        var key = pattern ?? Empty;
+        return Cache.GetOrAdd(key, static p => new PatternMatcher(p));
+    }
+
+    private static readonly Pattern Empty = new("");
 
     public bool IsMatch(string? candidate)
     {

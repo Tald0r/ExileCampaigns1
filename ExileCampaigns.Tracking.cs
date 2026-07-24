@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using ExileCampaigns.Guide;
@@ -80,7 +81,7 @@ public partial class ExileCampaigns
         if (ms == null) return false;
         foreach (var m in ms)
         {
-            var pm = new PatternMatcher(m.Match);
+            var pm = PatternMatcher.For(m.Match);
             var candidate = m.MatchBy == MatchKind.Path ? e.Path : e.RenderName;
             if (pm.IsMatch(candidate)) return true;
         }
@@ -112,6 +113,26 @@ public partial class ExileCampaigns
         return result;
     }
 
+    // flag name -> enum value never changes, only the bools do. so resolve a pattern to its flags once and
+    // then just look those up: checking a flag used to walk all ~2240 dict entries and ToString every key.
+    private static readonly QuestFlag[] AllQuestFlagValues = (QuestFlag[])Enum.GetValues(typeof(QuestFlag));
+    private static readonly string[] AllQuestFlagNames = Enum.GetNames(typeof(QuestFlag));
+
+    private static readonly ConcurrentDictionary<Pattern, QuestFlag[]> FlagsByPattern = new();
+
+    private static QuestFlag[] FlagsMatching(Pattern? pattern)
+    {
+        if (pattern == null) return Array.Empty<QuestFlag>();
+        return FlagsByPattern.GetOrAdd(pattern, static p =>
+        {
+            var pm = PatternMatcher.For(p);
+            var hits = new List<QuestFlag>();
+            for (int i = 0; i < AllQuestFlagNames.Length && i < AllQuestFlagValues.Length; i++)
+                if (pm.IsMatch(AllQuestFlagNames[i])) hits.Add(AllQuestFlagValues[i]);
+            return hits.ToArray();
+        });
+    }
+
     // live IWorldState bound to the current frame + the progress tracker.
     private sealed class WorldState : IWorldState
     {
@@ -131,9 +152,8 @@ public partial class ExileCampaigns
         {
             var f = Flags;
             if (f == null) return false;
-            var pm = new PatternMatcher(flag);
-            foreach (var kv in f)
-                if (kv.Value && pm.IsMatch(kv.Key.ToString())) return true;
+            foreach (var q in FlagsMatching(flag))
+                if (f.TryGetValue(q, out var set) && set) return true;
             return false;
         }
 
@@ -143,10 +163,7 @@ public partial class ExileCampaigns
             if (f == null || flags == null) return 0;
             int n = 0;
             foreach (var p in flags)
-            {
-                var pm = new PatternMatcher(p);
-                if (f.Any(kv => kv.Value && pm.IsMatch(kv.Key.ToString()))) n++;
-            }
+                if (QuestFlagSatisfied(p)) n++;
             return n;
         }
 
@@ -154,7 +171,7 @@ public partial class ExileCampaigns
         // regex mode still works for wildcards if needed.
         public bool InAreaSatisfied(Pattern area) =>
             area.Regex
-                ? new PatternMatcher(area).IsMatch(_p._areaId)
+                ? PatternMatcher.For(area).IsMatch(_p._areaId)
                 : string.Equals(area.Value, _p._areaId, StringComparison.OrdinalIgnoreCase);
 
         public bool WaypointPulsed() => _p._progress.WaypointPulsed;
@@ -200,7 +217,7 @@ public partial class ExileCampaigns
             var names = _p.InventoryItemNames();
             foreach (var it in items)
             {
-                var pm = new PatternMatcher(it.Match);
+                var pm = PatternMatcher.For(it.Match);
                 int held = names.Count(n => pm.IsMatch(n));
                 if (held < (it.Count > 0 ? it.Count : 1)) return false;
             }
@@ -220,7 +237,7 @@ public partial class ExileCampaigns
             int n = 0;
             foreach (var name in names)
                 foreach (var m in entities)
-                    if (new PatternMatcher(m.Match).IsMatch(name)) { n++; break; }
+                    if (PatternMatcher.For(m.Match).IsMatch(name)) { n++; break; }
             return n;
         }
     }
@@ -232,15 +249,17 @@ public partial class ExileCampaigns
     // edge-triggered so an already-set flag doesn't auto-complete the step.
     // _progress.WaypointPulsed clears on step change (new ProgressTracker), same as the login pulse.
     private const string WaypointFlag = "AchievementCheckWaypoints";
+    // resolved once: this runs every tick, and the old name sweep walked the whole ~2240-entry flag dict
+    private static readonly QuestFlag? WaypointFlagValue =
+        Enum.TryParse<QuestFlag>(WaypointFlag, out var wpv) ? wpv : null;
     private bool _wpFlagWasSet;
     private bool _wpFirstPoll = true;
     private void UpdateWaypointPulse()
     {
+        if (WaypointFlagValue is not { } wpFlag) return;
         var flags = ReadQuestFlags();
         if (flags == null) return;
-        bool nowSet = false;
-        foreach (var kv in flags)
-            if (kv.Value && kv.Key.ToString() == WaypointFlag) { nowSet = true; break; }
+        bool nowSet = flags.TryGetValue(wpFlag, out var wpSet) && wpSet;
         if (_wpFirstPoll) { _wpFirstPoll = false; _wpFlagWasSet = nowSet; return; }
         if (nowSet && !_wpFlagWasSet) _progress.WaypointPulsed = true;
         _wpFlagWasSet = nowSet;

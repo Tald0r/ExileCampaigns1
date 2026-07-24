@@ -256,7 +256,7 @@ public sealed class StepTargetResolver
 
         var matchers = targets
             .Where(t => t != null && t.Kind == TargetKind.Entity)
-            .Select(t => (m: new PatternMatcher(t.Match), byPath: t.MatchBy == MatchKind.Path, living: t.LivingOnly))
+            .Select(t => (m: PatternMatcher.For(t.Match), byPath: t.MatchBy == MatchKind.Path, living: t.LivingOnly))
             .ToList();
         if (matchers.Count == 0) return res;
 
@@ -278,7 +278,7 @@ public sealed class StepTargetResolver
     {
         var res = new List<Vector2>();
         if (gc == null || t == null || t.Kind != TargetKind.Entity) return res;
-        var em = new PatternMatcher(t.Match);
+        var em = PatternMatcher.For(t.Match);
         bool byPath = t.MatchBy == MatchKind.Path;
         bool Match(string? path, string? name) => em.IsMatch(byPath ? path : name);
         // living targets (bosses/monsters) can die out of range, so never cache them -- a lingering icon over a
@@ -317,14 +317,14 @@ public sealed class StepTargetResolver
                 catch { return null; }
             case TargetKind.Room:
             {
-                var rm = new PatternMatcher(t.Match);
+                var rm = PatternMatcher.For(t.Match);
                 return NearestRoomCenter(gc, playerGrid, name => rm.IsMatch(name));
             }
             case TargetKind.Entity:
             {
                 var entities = gc.EntityListWrapper?.Entities;
                 if (entities == null) return null;
-                var em = new PatternMatcher(t.Match);
+                var em = PatternMatcher.For(t.Match);
                 bool byPath = t.MatchBy == MatchKind.Path;
                 var hit = entities
                     .Where(e => e != null && e.IsValid && HasGrid(e))

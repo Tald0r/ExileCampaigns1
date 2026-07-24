@@ -956,12 +956,29 @@ public partial class ExileCampaigns
     // the shown act's waypoint icons sit under a per-act holder whose path differs by act (Part 2 nests
     // deeper than Part 1) and WaypointsRoot only ever aliases act 1. so find the holder generically: the
     // element with the most VISIBLE icon children is whichever act tab is open. null when nothing's shown.
+    private Element? _wpHolder;
+    private DateTime _wpHolderAt;
+
     private Element? WaypointNodeHolder()
     {
         // act 1 keeps its verified holder (indices there are already baked); only that alias exists for it.
         var wp1 = Act1IconHolder();
         if (wp1 != null && HasVisibleIcon(wp1)) return wp1;
-        return SearchVisibleIconHolder();
+
+        // the generic search walks up to 4000 elements reading a texture name + rect off each, way too heavy
+        // to redo every frame. re-search twice a second; in between, keep it only while it's still showing.
+        if (_wpHolder != null && (DateTime.UtcNow - _wpHolderAt).TotalMilliseconds < 500)
+            return HolderStillShown(_wpHolder) ? _wpHolder : null;
+
+        _wpHolderAt = DateTime.UtcNow;
+        _wpHolder = SearchVisibleIconHolder();
+        return _wpHolder;
+    }
+
+    private static bool HolderStillShown(Element holder)
+    {
+        try { return holder.Address != 0 && holder.IsVisible; }
+        catch { return false; }
     }
 
     private Element? Act1IconHolder()
