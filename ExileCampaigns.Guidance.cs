@@ -975,9 +975,18 @@ public partial class ExileCampaigns
         catch { return null; }
     }
 
+    // 3.30 stopped reporting a texture on the waypoint nodes (reads back empty), so shape is the fallback:
+    // a node is a childless leaf with a ~1px client rect. texture still wins when it's there.
     private static bool IsIcon(Element? c)
     {
-        try { return c != null && c.IsVisible && string.Equals(c.TextureName, WpIconTex, StringComparison.Ordinal); }
+        try
+        {
+            if (c == null || !c.IsVisible) return false;
+            if (string.Equals(c.TextureName, WpIconTex, StringComparison.Ordinal)) return true;
+            if (c.ChildCount != 0) return false;
+            var r = c.GetClientRectCache;
+            return r.Width > 0f && r.Width < 3f && r.Height > 0f && r.Height < 3f;
+        }
         catch { return false; }
     }
 
