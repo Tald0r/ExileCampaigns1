@@ -1280,8 +1280,8 @@ public partial class ExileCampaigns
             var rewards = GameController?.IngameState?.IngameUi?.QuestRewardWindow;
             if (rewards is { IsVisible: true })
             {
-                DrawWindowItemHighlights(rewards);
-                DrawWindowItemTooltip(rewards);
+                var tip = DrawWindowItemTooltip(rewards);
+                DrawWindowItemHighlights(rewards, tip);
             }
         }
 
@@ -1290,8 +1290,8 @@ public partial class ExileCampaigns
             var vendor = GameController?.IngameState?.IngameUi?.PurchaseWindow;
             if (vendor is { IsVisible: true })
             {
-                DrawWindowItemHighlights(vendor);
-                DrawWindowItemTooltip(vendor);
+                var tip = DrawWindowItemTooltip(vendor);
+                DrawWindowItemHighlights(vendor, tip);
             }
         }
 
@@ -1301,8 +1301,8 @@ public partial class ExileCampaigns
             var stash = GameController?.IngameState?.IngameUi?.StashElement;
             if (stash is { IsVisible: true })
             {
-                DrawWindowItemHighlights(stash);
-                DrawWindowItemTooltip(stash);
+                var tip = DrawWindowItemTooltip(stash);
+                DrawWindowItemHighlights(stash, tip);
             }
         }
     }
@@ -1349,7 +1349,7 @@ public partial class ExileCampaigns
     // outline in-build InventoryItem leaves under a window (quest reward, vendor, later stash). walk the
     // subtree for InventoryItem leaves and read their .Entity: GetPossibleRewards() hands back junk entities
     // (address 7) in this ExileAPI build. items not in the build are left alone, not dimmed: still readable.
-    private void DrawWindowItemHighlights(Element window)
+    private void DrawWindowItemHighlights(Element window, IReadOnlyList<(Vector2 Min, Vector2 Max)> avoidRects)
     {
         try
         {
@@ -1364,11 +1364,24 @@ public partial class ExileCampaigns
                 var r = element.GetClientRect();
                 var min = new Vector2(r.X - 2, r.Y - 2);
                 var max = new Vector2(r.X + r.Width + 2, r.Y + r.Height + 2);
+                // a tooltip (ours or the game's own item tooltip) would cover it anyway, and a partial
+                // overlap looks broken - skip clean rather than draw a half-hidden box
+                var covered = false;
+                foreach (var avoid in avoidRects)
+                {
+                    if (!RectsOverlap(min, max, avoid.Min, avoid.Max)) continue;
+                    covered = true;
+                    break;
+                }
+                if (covered) continue;
                 dl.AddRect(min, max, U32(IndicatorColor(entry)), 0f, ImDrawFlags.None, 3f);
             }
         }
         catch { /* window mid-teardown */ }
     }
+
+    private static bool RectsOverlap(Vector2 aMin, Vector2 aMax, Vector2 bMin, Vector2 bMax) =>
+        aMin.X < bMax.X && aMax.X > bMin.X && aMin.Y < bMax.Y && aMax.Y > bMin.Y;
 
     // reward/vendor/stash icons sit several levels deep as InventoryItem elements; Element.Entity only reads
     // a real item on those. iterative walk, no dat lookup needed.
@@ -1389,21 +1402,31 @@ public partial class ExileCampaigns
 
     // hovering a highlighted item shows which set(s) plan it and at what level. UIHover gives the exact item
     // under the cursor, so no rect hit-testing. one line per set: "usable Lv5  -  Leveling (1-20)".
-    private void DrawWindowItemTooltip(Element window)
+    // returns the screen rects of any tooltip covering the hovered item - ours plus the game's own item
+    // tooltip - so the caller can keep its highlight outline from drawing half-hidden behind either.
+    private List<(Vector2 Min, Vector2 Max)> DrawWindowItemTooltip(Element window)
     {
+        var rects = new List<(Vector2 Min, Vector2 Max)>();
         try
         {
-            if (window is not { IsVisible: true }) return;
+            if (window is not { IsVisible: true }) return rects;
 
             var uiHover = GameController?.Game?.IngameState?.UIHover;
-            if (uiHover == null || uiHover.Address == 0) return;
+            if (uiHover == null || uiHover.Address == 0) return rects;
             var hovered = uiHover.AsObject<NormalInventoryItem>();
-            if (hovered == null || hovered.Address == 0) return;
+            if (hovered == null || hovered.Address == 0) return rects;
+
+            var nativeTip = hovered.Tooltip;
+            if (nativeTip is { IsVisible: true })
+            {
+                var tr = nativeTip.GetClientRect();
+                rects.Add((new Vector2(tr.X, tr.Y), new Vector2(tr.X + tr.Width, tr.Y + tr.Height)));
+            }
 
             var snap = ReadItemSnapshot(hovered.Item);
-            if (!snap.Valid) return;
+            if (!snap.Valid) return rects;
             var matches = MatchBuild(snap);
-            if (matches.Count == 0) return;   // not in the build, so not highlighted either
+            if (matches.Count == 0) return rects;   // not in the build, so not highlighted either
 
             ImGui.BeginTooltip();
             ImGui.TextUnformatted(Ascii(snap.Name));
@@ -1415,9 +1438,13 @@ public partial class ExileCampaigns
                 string flag = m.Entry.Used ? "  [have]" : m.Entry.Optional ? "  [optional]" : "";
                 ImGui.TextUnformatted(Ascii($"usable Lv{req}  -  {m.Set.Name} ({m.Set.MinLevel}-{m.Set.MaxLevel}){flag}"));
             }
+            var pos = ImGui.GetWindowPos();
+            var size = ImGui.GetWindowSize();
             ImGui.EndTooltip();
+            rects.Add((pos, pos + size));
         }
         catch { /* hover/window mid-teardown */ }
+        return rects;
     }
 
     // build overlay: from the active sets, what you can equip now and what unlocks next. reads the build
@@ -1494,10 +1521,15 @@ public partial class ExileCampaigns
             return new PanelLine(name, col, num: num, indent: support ? 1 : 0, onCtrlClick: () => MarkEntryHave(e));
         }
 
+        // level window: drop anything that unlocks further ahead than the setting allows (had stuff stays,
+        // it's already yours). a hidden skill takes its supports with it since the group loop drives them.
+        int ahead = s.LevelsAhead.Value;
+        bool InWindow(BuildEntry e) => e.Used || e.TargetLevel <= _playerLevel + ahead;
+
         var empty = new List<BuildEntry>();
-        var skills = skillSet?.Entries.Where(e => e.Kind == BuildItemKind.Gem && !e.IsSupport).ToList() ?? empty;
-        var supports = skillSet?.Entries.Where(e => e.Kind == BuildItemKind.Gem && e.IsSupport).ToList() ?? empty;
-        var items = gearSet?.Entries.Where(e => e.Kind == BuildItemKind.Equipment).ToList() ?? empty;
+        var skills = skillSet?.Entries.Where(e => e.Kind == BuildItemKind.Gem && !e.IsSupport && InWindow(e)).ToList() ?? empty;
+        var supports = skillSet?.Entries.Where(e => e.Kind == BuildItemKind.Gem && e.IsSupport && InWindow(e)).ToList() ?? empty;
+        var items = gearSet?.Entries.Where(e => e.Kind == BuildItemKind.Equipment && InWindow(e)).ToList() ?? empty;
 
         // each skill in declared order, then the supports that link to it (a support feeding several skills
         // repeats under each). a group whose skill and every support are already had is skipped entirely.
@@ -1518,10 +1550,21 @@ public partial class ExileCampaigns
         { lines.Add(Row(it, support: false)); shown++; }
 
         int total = (gearSet?.Entries.Count ?? 0) + (skillSet?.Entries.Count ?? 0);
+        int inWindow = skills.Count + supports.Count + items.Count;
         if (total == 0)
             lines.Add(new PanelLine("  (sets are empty)", s.OptionalColor.Value));
         else if (shown == 0)
-            lines.Add(new PanelLine("  (all equipped)", s.OptionalColor.Value));
+            lines.Add(new PanelLine(inWindow == 0 && ahead < 99
+                ? $"  (nothing within {ahead} levels)" : "  (all equipped)", s.OptionalColor.Value));
+
+        // line cap: trim the tail and say how much got folded away (the notice takes the last slot).
+        int max = s.MaxLines.Value;
+        if (max > 1 && lines.Count > max)
+        {
+            int cut = lines.Count - max + 1;
+            lines.RemoveRange(max - 1, cut);
+            lines.Add(new PanelLine($"  (+{cut} more)", s.OptionalColor.Value));
+        }
 
         return lines;
     }

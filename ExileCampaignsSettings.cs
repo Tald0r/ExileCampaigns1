@@ -149,6 +149,12 @@ public class OverlayStyle
     [Menu("Border thickness", "0 = no border")] public RangeNode<int> BorderThickness { get; set; } = new RangeNode<int>(0, 0, 8);
     [Menu("Padding")] public RangeNode<int> Padding { get; set; } = new RangeNode<int>(6, 0, 40);
 
+    // build panel only (it's the sole user of this class). 99 = everything, same as before these existed.
+    [Menu("Levels ahead", "Hide build entries that need more than this many levels above yours (99 = show all)")]
+    public RangeNode<int> LevelsAhead { get; set; } = new RangeNode<int>(99, 0, 99);
+    [Menu("Max lines", "Cap the panel height; the rest collapse into a '+N more' row (0 = no cap)")]
+    public RangeNode<int> MaxLines { get; set; } = new RangeNode<int>(0, 0, 60);
+
     // -- Hidden: set by drag-to-move / right-edge resize, persisted but not in the menu --
     [IgnoreMenu] public RangeNode<int> PosX { get; set; } = new RangeNode<int>(40, 0, 4000);
     [IgnoreMenu] public RangeNode<int> PosY { get; set; } = new RangeNode<int>(300, 0, 2160);

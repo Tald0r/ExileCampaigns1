@@ -55,6 +55,10 @@ public partial class ExileCampaigns
             SliderInt("XP rate window (min)", Settings.XpRateWindowMinutes, "Average xp/hour + time-to-level over the last N minutes");
             ImGui.SeparatorText("Build Planner Overlay");
             DrawOverlayStyle(Settings.BuildPanel, "buildpanel");
+            SliderInt("Levels ahead##bp", Settings.BuildPanel.LevelsAhead,
+                "Hide entries that need more than this many levels above yours (99 = show all)");
+            SliderInt("Max lines##bp", Settings.BuildPanel.MaxLines,
+                "Cap the panel height; the rest collapse into a '+N more' row (0 = no cap)");
             ImGui.SeparatorText("Waypoint overlay");
             Toggle("Enabled##wp", Settings.WaypointOverlay.Enable,
                 "On a 'Waypoint to X' step, highlight which waypoint to click on the open World Map");
