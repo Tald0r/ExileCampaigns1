@@ -5,7 +5,7 @@ using ExileCampaigns.Build;
 using ExileCore.PoEMemory.Components;
 using ExileCore.PoEMemory.MemoryObjects;
 using ExileCore.Shared.Enums;
-using ImGuiNET;
+using Hexa.NET.ImGui;
 using SharpDX;
 using ExileCore.PoEMemory;
 using ExileCore.PoEMemory.Elements.InventoryElements;
@@ -280,7 +280,7 @@ public partial class ExileCampaigns
         var selectedId = (gear ? SelectedGearSet : SelectedSkillSet)?.Id;
 
         ImGui.BeginChild(gear ? "##ec_setlist_gear" : "##ec_setlist_skill",
-            new Vector2(220, 520), ImGuiChildFlags.Border);
+            new Vector2(220, 520), ImGuiChildFlags.Borders);
 
         if (ImGui.Button("Add set", new Vector2(-1, 0)))
         {
@@ -309,7 +309,7 @@ public partial class ExileCampaigns
         var sets = gear ? _build.GearSets : _build.SkillSets;
         var set = gear ? SelectedGearSet : SelectedSkillSet;
         ImGui.BeginChild(gear ? "##ec_setdetail_gear" : "##ec_setdetail_skill",
-            new Vector2(0, 520), ImGuiChildFlags.Border);
+            new Vector2(0, 520), ImGuiChildFlags.Borders);
 
         if (set == null)
         {
@@ -722,11 +722,11 @@ public partial class ExileCampaigns
                 bool highlight = ImGui.IsItemHovered();
                 if (highlight)
                 {
-                    ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeNS);
+                    ImGui.SetMouseCursor(ImGuiMouseCursor.ResizeNs);
                     ImGui.SetItemTooltip("Drag onto another skill row's handle to reorder.");
                 }
 
-                if (ImGui.BeginDragDropSource(ImGuiDragDropFlags.SourceAutoExpirePayload))
+                if (ImGui.BeginDragDropSource(ImGuiDragDropFlags.PayloadAutoExpire))
                 {
                     _draggedSkillRow = (set, e);
                     ImGui.SetDragDropPayload(skillRowPayload, IntPtr.Zero, 0);
@@ -739,7 +739,7 @@ public partial class ExileCampaigns
                 {
                     var payload = ImGui.AcceptDragDropPayload(skillRowPayload,
                         ImGuiDragDropFlags.AcceptBeforeDelivery | ImGuiDragDropFlags.AcceptNoDrawDefaultRect);
-                    if (!payload.Equals(default(ImGuiPayloadPtr)))
+                    if (!payload.IsNull)
                     {
                         highlight = true;
                         if (payload.IsDelivery())
@@ -1380,7 +1380,7 @@ public partial class ExileCampaigns
             var items = panel[InventoryIndex.PlayerInventory]?.VisibleInventoryItems;
             if (items == null) return;
 
-            var dl = ImGui.GetForegroundDrawList();
+            var dl = ImGui.GetBackgroundDrawList();
             float sz = Settings.BuildIndicators.Size.Value;
             uint outline = U32(new Color(10, 10, 12, 220));   // SharpDX.Color is RGBA
 
@@ -1416,7 +1416,7 @@ public partial class ExileCampaigns
     {
         try
         {
-            var dl = ImGui.GetForegroundDrawList();
+            var dl = ImGui.GetBackgroundDrawList();
             foreach (var (element, entry) in WindowBuildHits(window))
             {
                 if (element.Address == 0 || !element.IsVisibleLocal) continue;   // item left since the last scan
@@ -1434,7 +1434,7 @@ public partial class ExileCampaigns
                     break;
                 }
                 if (covered) continue;
-                dl.AddRect(min, max, U32(IndicatorColor(entry)), 0f, ImDrawFlags.None, 3f);
+                dl.AddRect(min, max, U32(IndicatorColor(entry)), 0f, 3f);
             }
         }
         catch { /* window mid-teardown */ }
